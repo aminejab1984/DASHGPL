@@ -3,8 +3,3 @@
 
 [functions]
   directory = "netlify/functions"
-
-[[redirects]]
-  from = "/api/data"
-  to = "/.netlify/functions/data"
-  status = 200
