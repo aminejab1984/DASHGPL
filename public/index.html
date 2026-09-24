@@ -1266,7 +1266,7 @@ function exportCSV(data){
 const PIN='CMGPL';
 let _pendingFile=null, _rawHdrs=[], _rawRows=[];
 const FIELD_DEFS=[
-  {key:'d',  label:'Date Création',              req:true,  hints:['date création','date_création','datecreation','date cr','datecr','date_cr']},
+  {key:'d',  label:'Date (facture / versement)', req:true,  hints:['=date','=créé le','=cree le','date création','date_création','datecreation','date cr','datecr','date_cr']},
   {key:'w',  label:'Semaine (Week)',              req:false, hints:['week','semaine']},
   {key:'crbt',label:'CRBT (colonne Montant)',     req:false, hints:['=montant','colis/crbt','crbt']},
   {key:'fr', label:'Frais',                      req:false, hints:['colis/frais','frais']},
@@ -1380,7 +1380,8 @@ async function applyMapping(){
   const missing=FIELD_DEFS.filter(f=>f.req&&(idx[f.key]===undefined||idx[f.key]<0)).map(f=>f.label);
   if(missing.length){showStatus('❌ Champs requis manquants : '+missing.join(', '),true);return;}
   const cv=(row,k)=>idx[k]!==undefined&&idx[k]>=0?row[idx[k]]??'':'';
-  const toDate=v=>{ if(!v)return''; if(v instanceof Date)return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10); const d=new Date(s); return isNaN(d)?s:d.toISOString().slice(0,10); };
+  const ymd=dt=>{ const t=new Date(dt.getTime()+12*3600e3); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); };
+  const toDate=v=>{ if(!v)return''; if(v instanceof Date)return ymd(v); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10); const d=new Date(s); return isNaN(d)?s:ymd(d); };
   const sf=v=>parseFloat(v)||0;
   const newR=_rawRows.filter(r=>r.some(c=>c!=='')).map(r=>({
     d:toDate(cv(r,'d')), w:String(cv(r,'w')), crbt:sf(cv(r,'crbt')), fr:sf(cv(r,'fr')), p:sf(cv(r,'p')),
