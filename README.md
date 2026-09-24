@@ -1,23 +1,29 @@
-[README.md](https://github.com/user-attachments/files/32606631/README.md)
-# DASHGPL — Tawssil COD Dashboard
+[README.md](https://github.com/user-attachments/files/32607164/README.md)
+# DASHGPL — Netlify + stockage persistant
 
-## Architecture
-- `public/index.html` — dashboard HTML/CSS/JS.
-- `netlify/functions/data.mjs` — API serverless Netlify.
-- Netlify Blobs — persistent shared storage.
-- `/api/data?action=load|chunk|finalize|reset` — dashboard data API.
+## Structure obligatoire
 
-## Weekly Excel workflow
-1. Open the dashboard.
-2. Import `.xlsx`, `.xls` or `.csv`.
-3. Enter the existing PIN `CMGPL`.
-4. Validate the column mapping.
-5. The dashboard sends the parsed records to Netlify in chunks and finalizes the latest dataset.
-6. Any browser opening the site can restore the latest dataset from Netlify.
+```text
+DASHGPL/
+├── public/
+│   └── index.html
+├── netlify/
+│   └── functions/
+│       └── data.mjs
+├── netlify.toml
+├── package.json
+└── README.md
+```
 
-## Netlify
-Publish directory: `public`
-Functions directory: `netlify/functions`
-No frontend build is required.
+## Déploiement GitHub / Netlify
 
-For stronger server-side protection, set the Netlify environment variable `DASHGPL_PIN` and use the same PIN in the dashboard before deployment.
+1. Mettre le contenu de ce dossier à la racine du dépôt GitHub `aminejab1984/DASHGPL`.
+2. Vérifier que `public/index.html` est visible directement à la racine du dépôt.
+3. Dans Netlify : Build command = vide ; Publish directory = `public`.
+4. Les Functions sont dans `netlify/functions` via `netlify.toml`.
+5. Redéployer le site.
+
+Le dashboard envoie désormais les données importées à `/.netlify/functions/data`.
+La Function utilise le store site-wide Netlify Blobs `gpl-dashboard` et la clé `latest-dashboard-data`.
+
+Après import Excel : les données sont sauvegardées côté serveur. Après F5, le dashboard tente d'abord de restaurer les données depuis le serveur, puis utilise localStorage uniquement comme secours.
