@@ -1,20 +1,5 @@
 [README.md](https://github.com/user-attachments/files/32607164/README.md)
 # DASHGPL — Netlify + stockage persistant
-
-## Structure obligatoire
-
-```text
-DASHGPL/
-├── public/
-│   └── index.html
-├── netlify/
-│   └── functions/
-│       └── data.mjs
-├── netlify.toml
-├── package.json
-└── README.md
-```
-
 ## Déploiement GitHub / Netlify
 
 1. Mettre le contenu de ce dossier à la racine du dépôt GitHub `aminejab1984/DASHGPL`.
