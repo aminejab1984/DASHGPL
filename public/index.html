@@ -1126,6 +1126,7 @@ document.getElementById('resetDataBtn').addEventListener('click',()=>{
 
   // Vider localStorage
   try{ localStorage.removeItem('gpl_v2_data'); }catch(e){}
+  deleteCloudData();
 
   // Vider les données en mémoire
   records.length = 0;
@@ -1373,7 +1374,7 @@ function buildColMap(hdrs){
 document.getElementById('mapOk').addEventListener('click',applyMapping);
 document.getElementById('mapCancel').addEventListener('click',()=>document.getElementById('mapModal').classList.remove('show'));
 
-function applyMapping(){
+async function applyMapping(){
   const idx={};
   FIELD_DEFS.forEach(f=>{ const v=document.getElementById('map_'+f.key)?.value||''; if(v)idx[f.key]=_rawHdrs.indexOf(v); });
   const missing=FIELD_DEFS.filter(f=>f.req&&(idx[f.key]===undefined||idx[f.key]<0)).map(f=>f.label);
@@ -1483,18 +1484,28 @@ function lockUpload(savedAt){
   };
 })();
 
-/* ════════════ CLOUD STORAGE — NETLIFY BLOBS ════════════ */
+/* ════════════ CLOUD STORAGE — NETLIFY BLOBS (CHUNKED) ════════════ */
+const CLOUD_API='/.netlify/functions/data';
+const CLOUD_CHUNK_SIZE=2500000; // ~2.5 MB, safely below Netlify Function 6 MB request limit
+
 async function saveToCloud(metaData, recordsData, savedAt){
   try{
-    showStatus('☁️ Sauvegarde des données sur le serveur…');
-    const res=await fetch('/.netlify/functions/data',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({meta:metaData,records:recordsData,savedAt})
-    });
-    if(!res.ok) throw new Error(await res.text() || ('HTTP '+res.status));
-    const out=await res.json();
+    showStatus('☁️ Préparation de la sauvegarde serveur…');
+    const payload=JSON.stringify({meta:metaData,records:recordsData,savedAt});
+    const total=Math.max(1,Math.ceil(payload.length/CLOUD_CHUNK_SIZE));
+    const uploadId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+
+    for(let i=0;i<total;i++){
+      const chunk=payload.slice(i*CLOUD_CHUNK_SIZE,(i+1)*CLOUD_CHUNK_SIZE);
+      showStatus(`☁️ Sauvegarde serveur : partie ${i+1}/${total}…`);
+      const res=await fetch(CLOUD_API,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({uploadId,index:i,total,chunk})
+      });
+      if(!res.ok) throw new Error((await res.text())||('HTTP '+res.status));
+    }
     showStatus('☁️ Données sauvegardées sur le serveur — '+fInt(recordsData.length)+' lignes');
-    return out;
+    return {ok:true,rowCount:recordsData.length,chunks:total};
   }catch(e){
     console.error('Cloud save:',e);
     showStatus('⚠️ Données chargées mais sauvegarde serveur impossible : '+(e.message||e),true);
@@ -1504,9 +1515,20 @@ async function saveToCloud(metaData, recordsData, savedAt){
 
 async function loadFromCloud(){
   try{
-    const res=await fetch('/.netlify/functions/data?ts='+Date.now(),{cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const p=await res.json();
+    const mr=await fetch(CLOUD_API+'?manifest=1&ts='+Date.now(),{cache:'no-store'});
+    if(!mr.ok) throw new Error('HTTP '+mr.status);
+    const manifest=await mr.json();
+    if(!manifest || !manifest.total) return false;
+
+    const parts=[];
+    for(let i=0;i<Number(manifest.total);i++){
+      const r=await fetch(CLOUD_API+'?chunk='+i+'&uploadId='+encodeURIComponent(manifest.uploadId)+'&ts='+Date.now(),{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status+' sur la partie '+(i+1));
+      const d=await r.json();
+      if(typeof d.chunk!=='string') throw new Error('Partie serveur invalide : '+(i+1));
+      parts.push(d.chunk);
+    }
+    const p=JSON.parse(parts.join(''));
     if(!p || !Array.isArray(p.records) || !p.records.length) return false;
     records.length=0; p.records.forEach(r=>records.push(r));
     Object.assign(meta,p.meta||{});
@@ -1518,6 +1540,10 @@ async function loadFromCloud(){
     console.warn('Cloud restore:',e);
     return false;
   }
+}
+
+async function deleteCloudData(){
+  try{ await fetch(CLOUD_API,{method:'DELETE'}); }catch(e){ console.warn('Cloud delete:',e); }
 }
 
 /* ════════════ RESTORE ════════════ */
