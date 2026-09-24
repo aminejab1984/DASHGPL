@@ -1402,7 +1402,6 @@ async function applyMapping(){
     statutColis:[...new Set(newR.map(r=>r.sc).filter(Boolean))].sort(),
   };
   records.length=0; newR.forEach(r=>records.push(r)); Object.assign(meta,newMeta);
-  if(window.gplAutoEmbed) window.gplAutoEmbed();
   weekSel.clear(); selDates.clear(); Object.values(F).forEach(s=>s.clear());
   document.querySelectorAll('.chip,.wchip').forEach(b=>b.classList.remove('on'));
   document.getElementById('villeFilter').value=''; document.getElementById('searchInp').value='';
