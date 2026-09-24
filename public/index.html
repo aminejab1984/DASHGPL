@@ -1556,13 +1556,14 @@ async function deleteCloudData(){
   try{ await fetch(CLOUD_API,{method:'DELETE'}); }catch(e){ console.warn('Cloud delete:',e); }
 }
 
-/* ════════════ RESTORE ════════════
-   Désactivé au démarrage : le dashboard commence vide.
-   Les données ne sont chargées qu'après un nouvel import Excel/CSV.
-   La sauvegarde Cloud/localStorage reste disponible après import.
+/* ════════════ RESTORE SERVEUR ════════════
+   Au démarrage du dashboard déployé (GitHub/Netlify), les données
+   sauvegardées sur Netlify sont restaurées automatiquement.
+   IMPORTANT : on ne restaure PAS le localStorage comme source de secours,
+   afin d'éviter de réafficher d'anciennes données locales.
 */
-(function restore(){
-  // Intentionnellement vide.
+(async function restore(){
+  await loadFromCloud();
 })();
 
 /* ════════════ AUTO-FIT KPI VALUES ════════════ */
