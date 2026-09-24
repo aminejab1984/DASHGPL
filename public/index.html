@@ -1126,7 +1126,6 @@ document.getElementById('resetDataBtn').addEventListener('click',()=>{
 
   // Vider localStorage
   try{ localStorage.removeItem('gpl_v2_data'); }catch(e){}
-  cloudReset();
 
   // Vider les données en mémoire
   records.length = 0;
@@ -1374,7 +1373,7 @@ function buildColMap(hdrs){
 document.getElementById('mapOk').addEventListener('click',applyMapping);
 document.getElementById('mapCancel').addEventListener('click',()=>document.getElementById('mapModal').classList.remove('show'));
 
-async function applyMapping(){
+function applyMapping(){
   const idx={};
   FIELD_DEFS.forEach(f=>{ const v=document.getElementById('map_'+f.key)?.value||''; if(v)idx[f.key]=_rawHdrs.indexOf(v); });
   const missing=FIELD_DEFS.filter(f=>f.req&&(idx[f.key]===undefined||idx[f.key]<0)).map(f=>f.label);
@@ -1402,22 +1401,17 @@ async function applyMapping(){
     statutColis:[...new Set(newR.map(r=>r.sc).filter(Boolean))].sort(),
   };
   records.length=0; newR.forEach(r=>records.push(r)); Object.assign(meta,newMeta);
+  if(window.gplAutoEmbed) window.gplAutoEmbed();
   weekSel.clear(); selDates.clear(); Object.values(F).forEach(s=>s.clear());
   document.querySelectorAll('.chip,.wchip').forEach(b=>b.classList.remove('on'));
   document.getElementById('villeFilter').value=''; document.getElementById('searchInp').value='';
   populateFilters(); updateMeta(); renderDateTags(); refresh();
   document.getElementById('mapModal').classList.remove('show');
-  showStatus(`⏳ ${fInt(newR.length)} lignes préparées — enregistrement cloud…`);
+  showStatus(`✅ ${fInt(newR.length)} lignes chargées — "${newMeta.sourceFile}"`);
   const savedAt=new Date().toLocaleString('fr-FR');
-  try{
-    await saveDatasetCloud(newMeta,newR,savedAt);
-    try{ localStorage.setItem('gpl_v2_data',JSON.stringify({meta:newMeta,records:newR,savedAt})); }catch(e){}
-    lockUpload(savedAt);
-    showStatus(`☁️ ${fInt(newR.length)} lignes enregistrées sur Netlify — "${newMeta.sourceFile}"`);
-  }catch(e){
-    try{ localStorage.setItem('gpl_v2_data',JSON.stringify({meta:newMeta,records:newR,savedAt})); }catch(_){ }
-    showStatus('⚠️ Données chargées localement, mais sauvegarde cloud échouée : '+(e.message||e),true);
-  }
+  try{ localStorage.setItem('gpl_v2_data',JSON.stringify({meta:newMeta,records:newR,savedAt})); }catch(e){}
+  lockUpload(savedAt);
+  saveToCloud(newMeta,newR,savedAt);
 }
 
 function lockUpload(savedAt){
@@ -1429,7 +1423,6 @@ function lockUpload(savedAt){
     rb.style.cssText='padding:4px 9px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:var(--hdr-ham);color:var(--hdr-ham-line);font-weight:700;font-size:10px;cursor:pointer;font-family:Cairo,sans-serif';
     rb.onclick=()=>{
       try{localStorage.removeItem('gpl_v2_data');}catch(e){}
-      cloudReset();
       if(fileInp){fileInp.disabled=false;} rb.remove();
       if(badge)badge.style.display='none';
     };
@@ -1438,63 +1431,104 @@ function lockUpload(savedAt){
 }
 
 
-/* ════════════ PERSISTANCE CLOUD NETLIFY ════════════ */
-const CLOUD_API='/api/data';
-const CLOUD_CHUNK_SIZE=1000;
-
-async function cloudRequest(action, payload={}){
-  const r=await fetch(CLOUD_API+'?action='+encodeURIComponent(action),{
-    method: payload && Object.keys(payload).length ? 'POST' : 'GET',
-    headers:{'Content-Type':'application/json'},
-    body: payload && Object.keys(payload).length ? JSON.stringify(payload) : undefined,
-    cache:'no-store'
-  });
-  let data={}; try{data=await r.json();}catch(e){}
-  if(!r.ok) throw new Error(data.error||('Erreur serveur '+r.status));
-  return data;
-}
-
-async function saveDatasetCloud(datasetMeta, datasetRecords, savedAt){
-  const datasetId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));
-  const total=Math.ceil(datasetRecords.length/CLOUD_CHUNK_SIZE)||1;
-  for(let i=0;i<total;i++){
-    const chunk=datasetRecords.slice(i*CLOUD_CHUNK_SIZE,(i+1)*CLOUD_CHUNK_SIZE);
-    await cloudRequest('chunk',{pin:PIN,datasetId,index:i,total,records:chunk});
-    if(i===0||i===total-1||i%5===0) showStatus(`☁️ Envoi cloud : ${Math.min(i+1,total)}/${total} blocs…`);
+/* ════════════ INTÉGRATION AUTOMATIQUE DES DONNÉES DANS LE HTML ════════════ */
+(function(){
+  const MARK='window.GPL_DASHBOARD_PAYLOAD=';
+  const idb=()=>new Promise((res,rej)=>{const q=indexedDB.open('gpl_fs',1);q.onupgradeneeded=()=>q.result.createObjectStore('kv');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);});
+  const idbGet=async k=>{const db=await idb();return new Promise((res,rej)=>{const r=db.transaction('kv').objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});};
+  const idbSet=async(k,v)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);});};
+  function build(src){
+    const a=src.indexOf(MARK);
+    if(a<0) throw new Error('Ce fichier n\'est pas le dashboard (bloc de données introuvable).');
+    const b=src.indexOf('<'+'/script>',a);
+    const json=JSON.stringify({meta:Object.assign({},meta),records:records}).replace(/<\//g,'<\\/');
+    return src.slice(0,a)+MARK+json+';'+src.slice(b);
   }
-  await cloudRequest('finalize',{pin:PIN,datasetId,total,meta:datasetMeta,savedAt});
+  async function download(){
+    let src; try{ const r=await fetch(location.href.split('#')[0]); if(!r.ok)throw 0; src=await r.text(); }catch(e){ return false; }
+    const d=new Date(), pad=n=>String(n).padStart(2,'0');
+    const name='GPL_DASH_TAWSSIL_ALL_IN_ONE_'+pad(d.getDate())+'-'+pad(d.getMonth()+1)+'-'+String(d.getFullYear()).slice(2)+'_INTEGRE.html';
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([build(src)],{type:'text/html;charset=utf-8'})); a.download=name; a.click();
+    showStatus('✅ '+fInt(records.length)+' lignes intégrées — "'+name+'" téléchargé'); return true;
+  }
+  window.gplAutoEmbed=async function(){
+    if(!records.length)return;
+    if(!('showOpenFilePicker' in window)){
+      if(!(await download())) showStatus('⚠ Intégration automatique non disponible sur ce navigateur — utilisez Chrome ou Edge.',true);
+      return;
+    }
+    try{
+      let h=null; try{h=await idbGet('handle');}catch(e){}
+      if(h){
+        let perm=await h.queryPermission({mode:'readwrite'});
+        if(perm!=='granted') perm=await h.requestPermission({mode:'readwrite'});
+        if(perm!=='granted') h=null;
+      }
+      if(!h){
+        showStatus('📌 Sélectionnez ce fichier HTML du dashboard (une seule fois) pour y intégrer les données…');
+        [h]=await showOpenFilePicker({mode:'readwrite',multiple:false,types:[{description:'Dashboard HTML',accept:{'text/html':['.html','.htm']}}]});
+        let perm=await h.queryPermission({mode:'readwrite'});
+        if(perm!=='granted') perm=await h.requestPermission({mode:'readwrite'});
+        if(perm!=='granted') throw new Error('Autorisation d\'écriture refusée.');
+      }
+      const out=build(await (await h.getFile()).text());
+      const w=await h.createWritable(); await w.write(out); await w.close();
+      try{await idbSet('handle',h);}catch(e){}
+      showStatus('✅ '+fInt(records.length)+' lignes intégrées automatiquement dans "'+h.name+'"');
+    }catch(e){
+      if(e&&e.name==='AbortError'){ showStatus('ℹ Données chargées, mais non intégrées au fichier (sélection annulée).',true); return; }
+      try{ if(await download()) return; }catch(_){}
+      showStatus('❌ Intégration impossible : '+(e&&e.message||e),true);
+    }
+  };
+})();
+
+/* ════════════ CLOUD STORAGE — NETLIFY BLOBS ════════════ */
+async function saveToCloud(metaData, recordsData, savedAt){
+  try{
+    showStatus('☁️ Sauvegarde des données sur le serveur…');
+    const res=await fetch('/.netlify/functions/data',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({meta:metaData,records:recordsData,savedAt})
+    });
+    if(!res.ok) throw new Error(await res.text() || ('HTTP '+res.status));
+    const out=await res.json();
+    showStatus('☁️ Données sauvegardées sur le serveur — '+fInt(recordsData.length)+' lignes');
+    return out;
+  }catch(e){
+    console.error('Cloud save:',e);
+    showStatus('⚠️ Données chargées mais sauvegarde serveur impossible : '+(e.message||e),true);
+    return null;
+  }
 }
 
-async function loadDatasetCloud(){
-  const data=await cloudRequest('load');
-  if(!data?.records?.length) return false;
-  records.length=0; data.records.forEach(r=>records.push(r));
-  Object.assign(meta,data.meta||{});
-  populateFilters(); updateMeta(); refresh();
-  lockUpload(data.savedAt||'');
-  showStatus(`☁️ ${fInt(records.length)} lignes restaurées depuis Netlify`);
-  return true;
-}
-
-async function cloudReset(){
-  try{ await cloudRequest('reset',{pin:PIN}); }
-  catch(e){ console.warn('Cloud reset:',e); }
+async function loadFromCloud(){
+  try{
+    const res=await fetch('/.netlify/functions/data?ts='+Date.now(),{cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const p=await res.json();
+    if(!p || !Array.isArray(p.records) || !p.records.length) return false;
+    records.length=0; p.records.forEach(r=>records.push(r));
+    Object.assign(meta,p.meta||{});
+    try{localStorage.setItem('gpl_v2_data',JSON.stringify(p));}catch(e){}
+    populateFilters(); updateMeta(); refresh(); lockUpload(p.savedAt||'');
+    showStatus('☁️ Données restaurées depuis le serveur — '+fInt(p.records.length)+' lignes');
+    return true;
+  }catch(e){
+    console.warn('Cloud restore:',e);
+    return false;
+  }
 }
 
 /* ════════════ RESTORE ════════════ */
 (async function restore(){
-  try{
-    const ok=await loadDatasetCloud();
-    if(ok) return;
-  }catch(e){
-    console.warn('Netlify storage indisponible:',e);
-  }
+  const cloudOk=await loadFromCloud();
+  if(cloudOk) return;
   try{
     const s=localStorage.getItem('gpl_v2_data'); if(!s)return;
     const p=JSON.parse(s); if(!p.records?.length)return;
     p.records.forEach(r=>records.push(r)); Object.assign(meta,p.meta);
     populateFilters(); updateMeta(); refresh(); lockUpload(p.savedAt||'');
-    showStatus('💾 Données locales restaurées — stockage cloud indisponible.',true);
   }catch(e){}
 })();
 
