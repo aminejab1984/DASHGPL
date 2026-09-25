@@ -446,10 +446,11 @@
       .sb{top:80px;height:calc(100vh - 80px)}
       .sb-overlay{top:80px}
       .kpi-row{grid-template-columns:1fr 1fr !important;gap:6px}
-      .kpi{padding:13px 12px}
-      .kpi-lbl{font-size:10px;margin-bottom:4px}
-      .kpi-val{font-size:18px !important}
-      .kpi-ico{font-size:16px !important;width:32px;height:32px;min-width:32px}
+      .kpi{padding:12px 12px 13px;min-height:104px;align-items:flex-start}
+      .kpi-info{width:100%;max-width:100%;padding-right:0;gap:4px}
+      .kpi-lbl{font-size:10px;margin-bottom:5px;padding-right:42px;line-height:1.25;min-height:13px}
+      .kpi-val{font-size:17px !important;line-height:1.15;white-space:nowrap;overflow:visible;text-overflow:clip;letter-spacing:-.035em;display:block;width:100%;padding-right:0}
+      .kpi-ico{font-size:16px !important;width:32px;height:32px;min-width:32px;position:absolute;top:8px;right:8px}
       .gauge-bar{grid-template-columns:1fr 1fr !important}
       .gb-lbl{font-size:9px}
       .gb-pct{font-size:10px}
